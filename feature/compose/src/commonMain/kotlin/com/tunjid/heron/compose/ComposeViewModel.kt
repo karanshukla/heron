@@ -21,16 +21,21 @@ import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.lifecycle.ViewModel
+import com.tunjid.heron.compose.ui.PhotoUploadLimit
 import com.tunjid.heron.data.core.models.Cursor
 import com.tunjid.heron.data.core.models.CursorQuery
+import com.tunjid.heron.data.core.models.ExternalEmbed
 import com.tunjid.heron.data.core.models.Link
 import com.tunjid.heron.data.core.models.LinkPreview
 import com.tunjid.heron.data.core.models.Post
 import com.tunjid.heron.data.core.models.ProfileWithViewerState
 import com.tunjid.heron.data.core.models.Record
 import com.tunjid.heron.data.core.models.ThreadGate
+import com.tunjid.heron.data.core.models.gifDescription
+import com.tunjid.heron.data.core.models.isGif
 import com.tunjid.heron.data.core.types.EmbeddableRecordUri
 import com.tunjid.heron.data.core.types.GenericUri
+import com.tunjid.heron.data.core.types.ImageUri
 import com.tunjid.heron.data.core.types.ProfileId
 import com.tunjid.heron.data.core.types.asEmbeddableRecordUriOrNull
 import com.tunjid.heron.data.files.FileManager
@@ -43,6 +48,7 @@ import com.tunjid.heron.data.repository.UserDataRepository
 import com.tunjid.heron.data.utilities.writequeue.Writable
 import com.tunjid.heron.data.utilities.writequeue.WriteQueue
 import com.tunjid.heron.feature.FeatureWhileSubscribed
+import com.tunjid.heron.media.picker.KeyboardMedia
 import com.tunjid.heron.timeline.utilities.writeStatusMessage
 import com.tunjid.heron.ui.scaffold.navigation.NavigationMutation
 import com.tunjid.heron.ui.scaffold.navigation.model
@@ -295,6 +301,8 @@ private fun Flow<Action.EditMedia>.launchEditMediaMutations(
                 .filter { fileManager.isUploadable(it) }
             is Action.EditMedia.RemoveMedia -> emptyList()
             is Action.EditMedia.UpdateMedia -> listOfNotNull(action.media)
+            is Action.EditMedia.AddKeyboardMedia -> listOf(action.media.photo)
+            is Action.EditMedia.UpdateGifAltText -> emptyList()
         }
     }
     when (action) {
@@ -327,8 +335,59 @@ private fun Flow<Action.EditMedia>.launchEditMediaMutations(
             is RestrictedFile.Media.Video -> state.video = item
             else -> Unit
         }
+
+        is Action.EditMedia.AddKeyboardMedia -> when (val gif = action.media.asGifEmbed()) {
+            // Uploading GIF bytes as an image blob would strip the animation, as the image CDN
+            // re-encodes blobs to a still frame. A GIF the keyboard can point at on the web is
+            // posted the way Bluesky posts GIFs instead: an external card whose uri is the file.
+            null -> if (state.photos.size < PhotoUploadLimit) {
+                state.photos += media.filterIsInstance<RestrictedFile.Media.Photo>()
+                state.video = null
+            }
+
+            else -> {
+                state.photos = emptyList()
+                state.video = null
+                state.linkPreview = LinkPreview(embed = gif)
+            }
+        }
+
+        is Action.EditMedia.UpdateGifAltText -> state.linkPreview = state.linkPreview
+            ?.let { preview ->
+                when (val embed = preview.embed.takeIf(ExternalEmbed::isGif)) {
+                    null -> preview
+                    else -> preview.copy(
+                        embed = embed.copy(
+                            description = gifDescription(
+                                title = embed.title,
+                                altText = action.altText,
+                            ),
+                        ),
+                    )
+                }
+            }
     }
 }
+
+/**
+ * The external card a keyboard committed GIF should be posted as, or null when the keyboard gave
+ * no web URL to point at — in which case the bytes are all there is, and the image is attached
+ * and uploaded like any other picked photo.
+ */
+private fun KeyboardMedia.asGifEmbed(): ExternalEmbed? = sourceUrl
+    ?.let { url ->
+        ExternalEmbed(
+            uri = GenericUri(url),
+            title = description.orEmpty(),
+            description = gifDescription(
+                title = description.orEmpty(),
+                altText = null,
+            ),
+            // The blob written into the record is fetched from this URL at post time.
+            thumb = ImageUri(url),
+        )
+    }
+    ?.takeIf(ExternalEmbed::isGif)
 
 context(productionScope: CoroutineScope)
 private fun Flow<Action.CreatePost>.launchCreatePostMutations(

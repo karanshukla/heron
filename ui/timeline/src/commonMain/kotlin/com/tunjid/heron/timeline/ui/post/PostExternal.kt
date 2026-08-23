@@ -39,6 +39,7 @@ import com.tunjid.heron.data.core.models.Record
 import com.tunjid.heron.data.core.models.StandardDocument
 import com.tunjid.heron.data.core.models.StandardPublication
 import com.tunjid.heron.data.core.models.Timeline
+import com.tunjid.heron.data.core.models.isGif
 import com.tunjid.heron.data.core.types.GenericUri
 import com.tunjid.heron.data.core.types.PostUri
 import com.tunjid.heron.data.core.types.domain
@@ -94,7 +95,7 @@ internal fun PostExternal(
     onClick: () -> Unit,
     onSubscriptionToggled: (StandardPublication) -> Unit,
 ) = with(paneTransitionScope) {
-    val isGif = feature.isGif()
+    val isGif = feature.isGif
     FeatureContainer(
         modifier = Modifier,
         onClick = onClick,
@@ -246,18 +247,11 @@ fun PostFeatureTextContent(
     }
 }
 
-private fun ExternalEmbed.isGif(): Boolean {
-    val path = uri.uri.substringBefore('?')
-    return path.endsWith(Gif_Format, ignoreCase = true)
-}
-
 private fun embedSharedElementKey(
     prefix: String,
     postUri: PostUri,
     text: String?,
 ): String = "$prefix-${postUri.uri}-$text"
-
-private const val Gif_Format = ".gif"
 
 // Placeholder identity for previews where no post exists yet; only feeds shared-element keys.
 // Uses a structurally valid AT-URI (a real-shaped did:plc authority + TID rkey) so utilities that

@@ -215,37 +215,52 @@ private fun MediaUpload(
             imageVector = Icons.Rounded.DoNotDisturbOn,
             contentDescription = stringResource(Res.string.remove_media),
         )
-        val addAltTextContentDescription = stringResource(Res.string.alt_text_add)
-        Row(
+        AltTextChip(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
-                .offset(x = (-8).dp, y = (-8).dp)
-                .background(
-                    color = Color.Black.copy(alpha = 0.6f),
-                    shape = CircleShape,
-                )
-                .padding(horizontal = 8.dp)
-                .height(32.dp)
-                .clip(CircleShape)
-                .semantics { contentDescription = addAltTextContentDescription }
-                .clickable { onAltClicked() },
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(1.dp),
-        ) {
-            Icon(
-                modifier = Modifier
-                    .size(16.dp),
-                imageVector = Icons.Rounded.Add,
-                contentDescription = null,
+                .offset(x = (-8).dp, y = (-8).dp),
+            onClick = onAltClicked,
+        )
+    }
+}
+
+/**
+ * The overlaid affordance for writing alt text, shared by uploaded media and by GIFs embedded as
+ * external cards.
+ */
+@Composable
+internal fun AltTextChip(
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val addAltTextContentDescription = stringResource(Res.string.alt_text_add)
+    Row(
+        modifier = modifier
+            .background(
+                color = Color.Black.copy(alpha = 0.6f),
+                shape = CircleShape,
             )
-            Text(
-                modifier = Modifier,
-                text = AltTextSymbol,
-                style = MaterialTheme.typography.labelMedium,
-                fontWeight = FontWeight.Bold,
-                color = Color.White,
-            )
-        }
+            .padding(horizontal = 8.dp)
+            .height(32.dp)
+            .clip(CircleShape)
+            .semantics { contentDescription = addAltTextContentDescription }
+            .clickable(onClick = onClick),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(1.dp),
+    ) {
+        Icon(
+            modifier = Modifier
+                .size(16.dp),
+            imageVector = Icons.Rounded.Add,
+            contentDescription = null,
+        )
+        Text(
+            modifier = Modifier,
+            text = AltTextSymbol,
+            style = MaterialTheme.typography.labelMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White,
+        )
     }
 }
 

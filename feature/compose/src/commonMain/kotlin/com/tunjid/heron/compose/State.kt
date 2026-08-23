@@ -20,16 +20,19 @@ import androidx.compose.runtime.Stable
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
+import com.tunjid.heron.data.core.models.ExternalEmbed
 import com.tunjid.heron.data.core.models.Link
 import com.tunjid.heron.data.core.models.LinkPreview
 import com.tunjid.heron.data.core.models.Post
 import com.tunjid.heron.data.core.models.PostInteractionSettingsPreference
 import com.tunjid.heron.data.core.models.Profile
 import com.tunjid.heron.data.core.models.Record
+import com.tunjid.heron.data.core.models.isGif
 import com.tunjid.heron.data.core.types.DraftId
 import com.tunjid.heron.data.core.types.ProfileId
 import com.tunjid.heron.data.core.types.Uri
 import com.tunjid.heron.data.files.RestrictedFile
+import com.tunjid.heron.media.picker.KeyboardMedia
 import com.tunjid.heron.ui.scaffold.navigation.NavigationAction
 import com.tunjid.heron.ui.scaffold.navigation.model
 import com.tunjid.heron.ui.scaffold.navigation.sharedElementPrefix
@@ -110,7 +113,17 @@ val State.canDraft
     get() = postType !is Post.Create.Reply && postType !is Post.Create.Quote
 
 val State.hasComposedContent
-    get() = postText.text.isNotBlank() || photos.isNotEmpty() || video != null
+    get() = postText.text.isNotBlank() ||
+        photos.isNotEmpty() ||
+        video != null ||
+        gifEmbed != null
+
+/**
+ * The GIF this post will embed, if any. Bluesky posts GIFs as external cards pointing at the
+ * animated file rather than as uploaded images, so a GIF lives in the link preview slot.
+ */
+val State.gifEmbed: ExternalEmbed?
+    get() = linkPreview?.embed?.takeIf(ExternalEmbed::isGif)
 
 val State.hasLongPost
     get() = when (val type = postType) {
@@ -176,6 +189,21 @@ sealed class Action(val key: String) {
 
         data class UpdateMedia(
             val media: RestrictedFile.Media?,
+        ) : EditMedia()
+
+        /**
+         * An image the software keyboard committed into the post's text field, e.g. from Gboard's
+         * GIF or sticker picker.
+         */
+        data class AddKeyboardMedia(
+            val media: KeyboardMedia,
+        ) : EditMedia()
+
+        /**
+         * Alt text for a GIF attached as an external embed rather than as an uploaded image.
+         */
+        data class UpdateGifAltText(
+            val altText: String,
         ) : EditMedia()
     }
 

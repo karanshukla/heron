@@ -18,6 +18,7 @@ package com.tunjid.heron.compose
 
 import androidx.compose.animation.animateBounds
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -54,6 +55,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
+import com.tunjid.heron.compose.ui.AltTextChip
+import com.tunjid.heron.compose.ui.GifAltTextSheetState.Companion.rememberGifAltTextSheetState
 import com.tunjid.heron.compose.ui.MediaUploadItems
 import com.tunjid.heron.data.core.models.AppliedLabels
 import com.tunjid.heron.data.core.models.FeedGenerator
@@ -66,11 +69,14 @@ import com.tunjid.heron.data.core.models.Profile
 import com.tunjid.heron.data.core.models.Record
 import com.tunjid.heron.data.core.models.StarterPack
 import com.tunjid.heron.data.core.models.contentDescription
+import com.tunjid.heron.data.core.models.isGif
 import com.tunjid.heron.data.core.models.primaryRecord
 import com.tunjid.heron.data.core.types.Uri
 import com.tunjid.heron.data.files.RestrictedFile
 import com.tunjid.heron.images.AsyncImage
 import com.tunjid.heron.images.ImageArgs
+import com.tunjid.heron.media.picker.KeyboardMedia
+import com.tunjid.heron.media.picker.KeyboardMediaReceiver
 import com.tunjid.heron.timeline.ui.PostActions
 import com.tunjid.heron.timeline.ui.post.ExternalEmbedPreview
 import com.tunjid.heron.timeline.ui.profile.ProfileName
@@ -151,6 +157,12 @@ internal fun ComposeScreen(
             onMediaItemUpdated = { item ->
                 actions(Action.EditMedia.UpdateMedia(item))
             },
+            onKeyboardMediaReceived = { keyboardMedia ->
+                actions(Action.EditMedia.AddKeyboardMedia(keyboardMedia))
+            },
+            onGifAltTextChanged = { altText ->
+                actions(Action.EditMedia.UpdateGifAltText(altText))
+            },
         )
         if (state.suggestedProfiles.isNotEmpty()) {
             ProfileSearchResults(
@@ -206,7 +218,12 @@ private fun Post(
     onUriDetected: (String) -> Unit,
     removeMediaItem: (RestrictedFile.Media) -> Unit,
     onMediaItemUpdated: (RestrictedFile.Media) -> Unit,
+    onKeyboardMediaReceived: (KeyboardMedia) -> Unit,
+    onGifAltTextChanged: (String) -> Unit,
 ) {
+    val gifAltTextSheetState = rememberGifAltTextSheetState(
+        onAltTextUpdated = onGifAltTextChanged,
+    )
     Column(
         modifier = modifier,
         verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -234,6 +251,7 @@ private fun Post(
                     onPostTextChanged = onPostTextChanged,
                     onMentionDetected = onMentionDetected,
                     onUriDetected = onUriDetected,
+                    onKeyboardMediaReceived = onKeyboardMediaReceived,
                 )
             },
         )
@@ -265,13 +283,26 @@ private fun Post(
                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                     verticalAlignment = Alignment.Top,
                 ) {
-                    ExternalEmbedPreview(
+                    Box(
                         modifier = Modifier
                             .weight(1f),
-                        embed = preview.embed,
-                        externalRecord = preview.primaryRecord,
-                        paneTransitionScope = paneTransitionScope,
-                    )
+                    ) {
+                        ExternalEmbedPreview(
+                            modifier = Modifier
+                                .fillMaxWidth(),
+                            embed = preview.embed,
+                            externalRecord = preview.primaryRecord,
+                            paneTransitionScope = paneTransitionScope,
+                        )
+                        // A GIF is posted as an external card, so its alt text lives on the embed
+                        // rather than on an uploaded file; offer the same affordance regardless.
+                        if (preview.embed.isGif) AltTextChip(
+                            modifier = Modifier
+                                .align(Alignment.BottomEnd)
+                                .padding(8.dp),
+                            onClick = { gifAltTextSheetState.editAltText(preview.embed) },
+                        )
+                    }
                     FilledTonalIconButton(
                         onClick = {
                             onRemoveUriClicked(preview.embed.uri)
@@ -410,48 +441,55 @@ private fun PostComposition(
     onPostTextChanged: (TextFieldValue) -> Unit,
     onMentionDetected: (String) -> Unit,
     onUriDetected: (String) -> Unit,
+    onKeyboardMediaReceived: (KeyboardMedia) -> Unit,
 ) {
     val textFieldFocusRequester = remember { FocusRequester() }
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
     val coroutineScope = rememberCoroutineScope()
 
-    BasicTextField(
-        modifier = modifier
-            .focusRequester(textFieldFocusRequester)
-            .bringIntoViewRequester(bringIntoViewRequester),
-        value = postText,
-        onValueChange = {
-            val links = it.annotatedString.links()
-            val annotated = formatTextPost(
-                text = it.text,
-                textLinks = links,
-            )
-            onPostTextChanged(
-                it.copy(annotatedString = annotated),
-            )
-            when (val target = links.detectActiveLink(it.selection)) {
-                is LinkTarget.UserHandleMention -> onMentionDetected(target.handle.id)
-                is LinkTarget.ExternalLink -> onUriDetected(target.uri.uri)
-                is LinkTarget.Hashtag -> {
-                    // TODO: Implement hashtag search
+    // Tells the software keyboard the post's text field takes images, which is what surfaces
+    // Gboard's GIF and sticker pickers.
+    KeyboardMediaReceiver(
+        onMediaReceived = onKeyboardMediaReceived,
+    ) {
+        BasicTextField(
+            modifier = modifier
+                .focusRequester(textFieldFocusRequester)
+                .bringIntoViewRequester(bringIntoViewRequester),
+            value = postText,
+            onValueChange = {
+                val links = it.annotatedString.links()
+                val annotated = formatTextPost(
+                    text = it.text,
+                    textLinks = links,
+                )
+                onPostTextChanged(
+                    it.copy(annotatedString = annotated),
+                )
+                when (val target = links.detectActiveLink(it.selection)) {
+                    is LinkTarget.UserHandleMention -> onMentionDetected(target.handle.id)
+                    is LinkTarget.ExternalLink -> onUriDetected(target.uri.uri)
+                    is LinkTarget.Hashtag -> {
+                        // TODO: Implement hashtag search
+                    }
+                    else -> Unit
                 }
-                else -> Unit
-            }
-        },
-        onTextLayout = {
-            val cursorRect = it.getCursorRect(postText.selection.start)
-            coroutineScope.launch {
-                bringIntoViewRequester.bringIntoView(cursorRect)
-            }
-        },
-        cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
-        textStyle = MaterialTheme.typography.bodyLarge.copy(
-            color = LocalContentColor.current,
-        ),
-        keyboardOptions = KeyboardOptions(
-            imeAction = ImeAction.Default,
-        ),
-    )
+            },
+            onTextLayout = {
+                val cursorRect = it.getCursorRect(postText.selection.start)
+                coroutineScope.launch {
+                    bringIntoViewRequester.bringIntoView(cursorRect)
+                }
+            },
+            cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+            textStyle = MaterialTheme.typography.bodyLarge.copy(
+                color = LocalContentColor.current,
+            ),
+            keyboardOptions = KeyboardOptions(
+                imeAction = ImeAction.Default,
+            ),
+        )
+    }
 
     LaunchedEffect(Unit) {
         textFieldFocusRequester.requestFocus()

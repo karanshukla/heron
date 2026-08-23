@@ -68,7 +68,11 @@ sealed class RestrictedFile {
     companion object {
         fun photo(
             file: PlatformFile,
-        ): Media.Photo = Media.Photo.File(file)
+            altText: String? = null,
+        ): Media.Photo = Media.Photo.File(
+            file = file,
+            altText = altText,
+        )
 
         fun video(
             file: PlatformFile,
