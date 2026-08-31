@@ -69,7 +69,6 @@ internal class SuspendingVideoUploadService(
     private val networkService: NetworkService,
     private val fileManager: FileManager,
     private val savedStateDataSource: SavedStateDataSource,
-    private val identityResolver: IdentityResolver,
 ) : VideoUploadService {
 
     private val videoUploadClient = httpClient.config {
@@ -100,9 +99,7 @@ internal class SuspendingVideoUploadService(
             .filterNotNull()
             .first()
 
-        val serviceUrl = authToken.serviceUrl
-            ?: identityResolver.resolvePds(Did(signedInProfileId.id))?.toString()
-            ?: throw IllegalStateException("Could not resolve a PDS for ${signedInProfileId.id}")
+        val serviceUrl = authToken.serviceUrl ?: throw IllegalStateException("Not signed in")
 
         networkService.runCatchingWithMonitoredNetworkRetry {
             getServiceAuth(
