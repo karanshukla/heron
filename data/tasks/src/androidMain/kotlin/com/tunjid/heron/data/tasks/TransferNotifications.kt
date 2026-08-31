@@ -29,26 +29,24 @@ internal object TransferNotifications {
     const val ChannelId = "heron.transfers"
 
     fun Context.ensureChannel() {
-        val manager = getSystemService(NotificationManager::class.java)
-        if (manager.getNotificationChannel(ChannelId) == null) {
-            manager.createNotificationChannel(
-                NotificationChannel(
-                    ChannelId,
-                    "Downloads",
-                    NotificationManager.IMPORTANCE_LOW,
-                ),
-            )
-        }
+        // Created unconditionally; the channel predates uploads and this renames it in place.
+        getSystemService(NotificationManager::class.java).createNotificationChannel(
+            NotificationChannel(
+                ChannelId,
+                "Transfers",
+                NotificationManager.IMPORTANCE_LOW,
+            ),
+        )
     }
 
     fun Context.progressNotification(
-        title: String,
-        progress: Progress?,
+        notice: TransferNotice,
     ): Notification {
         this.ensureChannel()
+        val progress = notice.progress
         return NotificationCompat.Builder(this, ChannelId)
-            .setContentTitle(title)
-            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle(notice.title)
+            .setSmallIcon(notice.smallIcon)
             .setOngoing(true)
             .setOnlyAlertOnce(true)
             .apply {

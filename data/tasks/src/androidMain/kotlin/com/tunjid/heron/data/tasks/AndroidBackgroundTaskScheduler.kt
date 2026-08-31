@@ -50,9 +50,7 @@ class AndroidBackgroundTaskScheduler(
 
     override suspend fun schedule(
         task: Task,
-    ) {
-        if (task is Task.Download) delegate.schedule(task)
-    }
+    ) = delegate.schedule(task)
 
     override fun liveStatus(
         id: TaskId,

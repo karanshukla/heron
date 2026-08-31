@@ -17,36 +17,55 @@
 package com.tunjid.heron.data.tasks
 
 import android.content.Context
+import com.tunjid.heron.data.files.path
 import kotlin.coroutines.cancellation.CancellationException
+import kotlin.time.Duration.Companion.minutes
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+
+/** What a running transfer wants shown in its notification. */
+internal data class TransferNotice(
+    val title: String,
+    val smallIcon: Int,
+    val progress: Progress?,
+)
 
 /**
- * Runs the download for [id] on whichever OS component invoked it (worker or job service).
+ * Runs the task for [id] on whichever OS component invoked it (worker or job service). A download is
+ * streamed here; an upload is pumped by the write queue instead, so it is only awaited.
  */
 internal suspend fun Context.runTransfer(
     id: TaskId,
-    onProgress: suspend (Task.Download, Progress) -> Unit,
+    onNotice: suspend (TransferNotice) -> Unit,
 ): Result<Unit> {
     val scheduler = backgroundTaskScheduler
     val taskStore = scheduler.taskStore
+    // An absent task has already finished; reporting failure here would ask for a needless retry.
     val task = taskStore.pending
         .first()
-        .firstOrNull { it.id == id } as? Task.Download
-        ?: return Result.failure(
-            IllegalStateException("No pending download for ${id.value}"),
-        )
+        .firstOrNull { it.id == id }
+        ?: return Result.success(Unit)
 
     return try {
-        onProgress(
-            task,
-            Progress(0L, task.sizeInBytes),
-        )
-        scheduler.download(
-            request = task,
-            authHeader = null, // TODO: resolve a gated-host bearer token (e.g. Hugging Face) at run time.
-            onProgress = { progress -> onProgress(task, progress) },
-        )
-        taskStore.remove(id)
+        when (task) {
+            is Task.Download -> {
+                onNotice(task.notice(progress = Progress(0L, task.sizeInBytes)))
+                scheduler.download(
+                    request = task,
+                    authHeader = null, // TODO: resolve a gated-host bearer token (e.g. Hugging Face) at run time.
+                    onProgress = { progress -> onNotice(task.notice(progress = progress)) },
+                )
+                taskStore.remove(id)
+            }
+            is Task.Upload -> {
+                onNotice(task.notice(progress = null))
+                // The write queue drops the task when the upload settles. The timeout is a ceiling on
+                // a task left behind by a write that never reported back.
+                withTimeoutOrNull(UploadKeepAliveTimeout) {
+                    taskStore.pending.first { pending -> pending.none { it.id == id } }
+                }
+            }
+        }
         Result.success(Unit)
     } catch (cancellation: CancellationException) {
         throw cancellation
@@ -58,3 +77,29 @@ internal suspend fun Context.runTransfer(
         Result.failure(throwable)
     }
 }
+
+internal fun Task.notice(
+    progress: Progress?,
+): TransferNotice = when (this) {
+    is Task.Download -> TransferNotice(
+        title = destination.path.name,
+        smallIcon = android.R.drawable.stat_sys_download,
+        progress = progress,
+    )
+    is Task.Upload -> TransferNotice(
+        title = UploadTitle,
+        smallIcon = android.R.drawable.stat_sys_upload,
+        progress = progress,
+    )
+}
+
+/** Shown before a task has been read back from the store, so it cannot name itself yet. */
+internal val PendingNotice = TransferNotice(
+    title = "Transferring",
+    smallIcon = android.R.drawable.stat_sys_upload,
+    progress = null,
+)
+
+private const val UploadTitle = "Uploading media"
+
+private val UploadKeepAliveTimeout = 15.minutes
