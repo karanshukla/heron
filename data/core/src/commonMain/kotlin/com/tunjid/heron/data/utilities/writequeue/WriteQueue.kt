@@ -19,7 +19,6 @@ package com.tunjid.heron.data.utilities.writequeue
 import com.tunjid.heron.data.core.types.ProfileId
 import com.tunjid.heron.data.core.utilities.File
 import com.tunjid.heron.data.core.utilities.Outcome
-import com.tunjid.heron.data.logging.LogPriority
 import com.tunjid.heron.data.logging.logcat
 import com.tunjid.heron.data.logging.loggableText
 import com.tunjid.heron.data.network.NetworkConnectionException
@@ -36,9 +35,7 @@ import com.tunjid.heron.data.repository.inCurrentProfileSession
 import com.tunjid.heron.data.repository.onEachSignedInProfile
 import com.tunjid.heron.data.repository.singleAuthorizedSessionFlow
 import com.tunjid.heron.data.tasks.BackgroundTaskScheduler
-import com.tunjid.heron.data.tasks.Task
 import com.tunjid.heron.data.tasks.TaskId
-import com.tunjid.heron.data.utilities.runCatchingUnlessCancelled
 import dev.zacsweers.metro.Inject
 import kotlin.coroutines.cancellation.CancellationException
 import kotlin.time.Clock
@@ -258,27 +255,19 @@ internal class PersistedWriteQueue(
             emit(writable to Outcome.Failure(it))
         }
 
+    /**
+     * A media upload has to outlive the foreground; a backgrounded process is frozen by the OS and
+     * the request stalls until it times out. The write runs here either way, so this only asks
+     * the platform to keep the process running while the bytes are in flight.
+     */
     private suspend fun Writable.keepingUploadAlive(
         write: suspend () -> Outcome,
     ): Outcome {
         if (!carriesMedia()) return write()
-        val taskId = TaskId("$UploadTaskPrefix$queueId")
-        // The upload still runs without the keep alive; the OS is just free to kill it early.
-        runCatchingUnlessCancelled {
-            backgroundTaskScheduler.cancel(taskId)
-            backgroundTaskScheduler.enqueue(Task.Upload(id = taskId))
-        }
-            .onFailure { it.logKeepAliveFailure(taskId) }
-        return try {
-            write()
-        } finally {
-            withContext(NonCancellable) {
-                runCatchingUnlessCancelled {
-                    backgroundTaskScheduler.cancel(taskId)
-                }
-                    .onFailure { it.logKeepAliveFailure(taskId) }
-            }
-        }
+        return backgroundTaskScheduler.keepingProcessAlive(
+            id = TaskId("$UploadTaskPrefix$queueId"),
+            block = write,
+        )
     }
 
     private suspend fun onWriteOutcome(
@@ -444,12 +433,6 @@ private fun Writable.writeTimeout() =
         is Writable.PostDraft,
         -> BasicWriteTimeout
     }
-
-private fun Throwable.logKeepAliveFailure(
-    taskId: TaskId,
-) = logcat(LogPriority.WARN) {
-    "Upload keep alive for ${taskId.value} failed. Cause: ${loggableText()}"
-}
 
 private const val UploadTaskPrefix = "upload:"
 

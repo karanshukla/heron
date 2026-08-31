@@ -33,7 +33,8 @@ internal data class TransferNotice(
 
 /**
  * Runs the task for [id] on whichever OS component invoked it (worker or job service). A download is
- * streamed here; an upload is pumped by the write queue instead, so it is only awaited.
+ * streamed here; an upload is sent by the write queue instead, so this only holds the process open
+ * for it.
  */
 internal suspend fun Context.runTransfer(
     id: TaskId,
@@ -41,6 +42,15 @@ internal suspend fun Context.runTransfer(
 ): Result<Unit> {
     val scheduler = backgroundTaskScheduler
     val taskStore = scheduler.taskStore
+
+    if (scheduler.isHoldingProcess(id).first()) {
+        onNotice(UploadNotice)
+        withTimeoutOrNull(ProcessHoldTimeout) {
+            scheduler.isHoldingProcess(id).first { holding -> !holding }
+        }
+        return Result.success(Unit)
+    }
+
     // An absent task has already finished; reporting failure here would ask for a needless retry.
     val task = taskStore.pending
         .first()
@@ -58,14 +68,8 @@ internal suspend fun Context.runTransfer(
                 )
                 taskStore.remove(id)
             }
-            is Task.Upload -> {
-                onNotice(task.notice(progress = null))
-                // The write queue drops the task when the upload settles. The timeout is a ceiling on
-                // a task left behind by a write that never reported back.
-                withTimeoutOrNull(UploadKeepAliveTimeout) {
-                    taskStore.pending.first { pending -> pending.none { it.id == id } }
-                }
-            }
+            // A hold is never put in the store, so it cannot reach here; it is handled above.
+            is Task.Upload -> Unit
         }
         Result.success(Unit)
     } catch (cancellation: CancellationException) {
@@ -88,30 +92,34 @@ internal fun Task.notice(
         smallIcon = android.R.drawable.stat_sys_download,
         progress = progress,
     )
-    is Task.Upload -> TransferNotice(
-        channelId = kind.channelId,
-        title = UploadTitle,
-        smallIcon = android.R.drawable.stat_sys_upload,
-        progress = progress,
-    )
+    is Task.Upload -> UploadNotice
 }
 
 /** The notice for [id] before it reports one of its own; a task already gone shows the default. */
 internal suspend fun Context.pendingNotice(
     id: TaskId,
-): TransferNotice = backgroundTaskScheduler.taskStore.pending
-    .first()
-    .firstOrNull { it.id == id }
-    ?.notice(progress = null)
-    ?: TransferNotice(
-        channelId = Task.Kind.Transfer.channelId,
-        title = DownloadTitle,
-        smallIcon = android.R.drawable.stat_sys_download,
-        progress = null,
-    )
+): TransferNotice {
+    val scheduler = backgroundTaskScheduler
+    if (scheduler.isHoldingProcess(id).first()) return UploadNotice
+    return scheduler.taskStore.pending
+        .first()
+        .firstOrNull { it.id == id }
+        ?.notice(progress = null)
+        ?: DownloadNotice
+}
 
-private const val DownloadTitle = "Download"
+private val DownloadNotice = TransferNotice(
+    channelId = Task.Kind.Transfer.channelId,
+    title = "Download",
+    smallIcon = android.R.drawable.stat_sys_download,
+    progress = null,
+)
 
-private const val UploadTitle = "Uploading media"
+private val UploadNotice = TransferNotice(
+    channelId = Task.Kind.Upload.channelId,
+    title = "Uploading media",
+    smallIcon = android.R.drawable.stat_sys_upload,
+    progress = null,
+)
 
-private val UploadKeepAliveTimeout = 15.minutes
+private val ProcessHoldTimeout = 15.minutes

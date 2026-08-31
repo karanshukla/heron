@@ -19,11 +19,17 @@ package com.tunjid.heron.data.tasks
 import android.content.Context
 import android.os.Build
 import com.tunjid.heron.data.files.FileManager
+import com.tunjid.heron.data.logging.LogPriority
+import com.tunjid.heron.data.logging.logcat
+import com.tunjid.heron.data.logging.loggableText
 import com.tunjid.heron.data.tasks.TransferNotifications.ensureChannels
 import com.tunjid.heron.data.tasks.uidt.UidtTransferDelegate
 import com.tunjid.heron.data.tasks.workmanager.WorkManagerTransferDelegate
 import io.ktor.client.HttpClient
+import kotlin.coroutines.cancellation.CancellationException
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.withContext
 
 /**
  * Android [BackgroundTaskScheduler]. A single scheduler that selects a [TransferDelegate] by API
@@ -47,6 +53,39 @@ class AndroidBackgroundTaskScheduler(
             context,
         )
         else WorkManagerTransferDelegate(context)
+
+    /**
+     * Android freezes a backgrounded process, so the hold is a user initiated job of its own. It is
+     * best effort: the write still runs without it, the OS is just free to stop it early.
+     */
+    override suspend fun <T> keepingProcessAlive(
+        id: TaskId,
+        block: suspend () -> T,
+    ): T = super.keepingProcessAlive(id) {
+        // Started inside the hold so the job, which reads the hold to know when to end, never
+        // observes itself as unheld and finishes the moment it starts.
+        bestEffort(id) { delegate.schedule(Task.Upload(id = id)) }
+        try {
+            block()
+        } finally {
+            withContext(NonCancellable) {
+                bestEffort(id) { delegate.cancelScheduled(id) }
+            }
+        }
+    }
+
+    private inline fun bestEffort(
+        id: TaskId,
+        block: () -> Unit,
+    ) = try {
+        block()
+    } catch (cancellation: CancellationException) {
+        throw cancellation
+    } catch (throwable: Throwable) {
+        logcat(LogPriority.WARN) {
+            "Could not hold the process open for ${id.value}. Cause: ${throwable.loggableText()}"
+        }
+    }
 
     override suspend fun schedule(
         task: Task,

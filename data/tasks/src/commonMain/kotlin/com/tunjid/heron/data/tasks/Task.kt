@@ -68,9 +68,10 @@ sealed interface Task {
     }
 
     /**
-     * Media being uploaded by the app's write queue. Nothing here pumps the upload; scheduling this
-     * only holds a user visible job open so the OS keeps the process running while the bytes are in
-     * flight. It ends when the task leaves the [TaskStore].
+     * Media being uploaded by the app's write queue. Nothing here sends the upload; this only
+     * describes the user visible job a platform opens to keep the process running while the bytes
+     * are in flight, for [BackgroundTaskScheduler.keepingProcessAlive]. Unlike a [Download] it is
+     * never put in the [TaskStore], because a hold on the process cannot outlive the process.
      */
     @Serializable
     data class Upload(
