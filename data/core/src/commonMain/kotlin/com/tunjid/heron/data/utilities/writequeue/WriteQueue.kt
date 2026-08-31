@@ -257,20 +257,12 @@ internal class PersistedWriteQueue(
             emit(writable to Outcome.Failure(it))
         }
 
-    /**
-     * A media upload has to outlive the foreground; a backgrounded process is frozen by the OS and
-     * the request stalls until it times out. Scheduling a [Task.Upload] keeps the process running
-     * behind a notification for as long as the write is in flight. It is best effort, so a platform
-     * that declines to schedule one never fails the write itself.
-     */
     private suspend fun Writable.keepingUploadAlive(
         write: suspend () -> Outcome,
     ): Outcome {
         if (!carriesMedia()) return write()
         val taskId = TaskId("$UploadTaskPrefix$queueId")
         runCatchingUnlessCancelled {
-            // Clears a task left behind by a process that died mid upload, which would otherwise
-            // deduplicate this one out of being scheduled.
             backgroundTaskScheduler.cancel(taskId)
             backgroundTaskScheduler.enqueue(Task.Upload(id = taskId))
         }

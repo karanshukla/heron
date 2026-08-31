@@ -55,7 +55,7 @@ internal class UidtTransferDelegate(
                         task.sizeInBytes,
                         0L,
                     )
-                    // The write queue owns the bytes, so their size is not known here.
+                    //no byte data available the delegate
                     is Task.Upload -> setEstimatedNetworkBytes(
                         0L,
                         JobInfo.NETWORK_BYTES_UNKNOWN.toLong(),
