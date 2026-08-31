@@ -19,6 +19,7 @@ package com.tunjid.heron.data.utilities.writequeue
 import com.tunjid.heron.data.core.types.ProfileId
 import com.tunjid.heron.data.core.utilities.File
 import com.tunjid.heron.data.core.utilities.Outcome
+import com.tunjid.heron.data.logging.LogPriority
 import com.tunjid.heron.data.logging.logcat
 import com.tunjid.heron.data.logging.loggableText
 import com.tunjid.heron.data.network.NetworkConnectionException
@@ -262,10 +263,12 @@ internal class PersistedWriteQueue(
     ): Outcome {
         if (!carriesMedia()) return write()
         val taskId = TaskId("$UploadTaskPrefix$queueId")
+        // The upload still runs without the keep alive; the OS is just free to kill it early.
         runCatchingUnlessCancelled {
             backgroundTaskScheduler.cancel(taskId)
             backgroundTaskScheduler.enqueue(Task.Upload(id = taskId))
         }
+            .onFailure { it.logKeepAliveFailure(taskId) }
         return try {
             write()
         } finally {
@@ -273,6 +276,7 @@ internal class PersistedWriteQueue(
                 runCatchingUnlessCancelled {
                     backgroundTaskScheduler.cancel(taskId)
                 }
+                    .onFailure { it.logKeepAliveFailure(taskId) }
             }
         }
     }
@@ -440,6 +444,12 @@ private fun Writable.writeTimeout() =
         is Writable.PostDraft,
         -> BasicWriteTimeout
     }
+
+private fun Throwable.logKeepAliveFailure(
+    taskId: TaskId,
+) = logcat(LogPriority.WARN) {
+    "Upload keep alive for ${taskId.value} failed. Cause: ${loggableText()}"
+}
 
 private const val UploadTaskPrefix = "upload:"
 
