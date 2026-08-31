@@ -25,12 +25,12 @@ import androidx.work.ForegroundInfo
 import androidx.work.WorkerParameters
 import com.tunjid.heron.data.tasks.KeyCompletedBytes
 import com.tunjid.heron.data.tasks.KeyTotalBytes
-import com.tunjid.heron.data.tasks.PendingNotice
 import com.tunjid.heron.data.tasks.Progress
 import com.tunjid.heron.data.tasks.TaskId
 import com.tunjid.heron.data.tasks.TransferNotice
 import com.tunjid.heron.data.tasks.TransferNotifications
 import com.tunjid.heron.data.tasks.TransferNotifications.progressNotification
+import com.tunjid.heron.data.tasks.pendingNotice
 import com.tunjid.heron.data.tasks.runTransfer
 
 /**
@@ -60,12 +60,13 @@ internal class TransferWorker(
     }
 
     // Required for expedited work: shown while WorkManager runs the request as a foreground service.
-    // A generic notice until the first callback replaces it with one the task named itself.
-    override suspend fun getForegroundInfo(): ForegroundInfo =
-        foregroundInfo(
-            id = TaskId(inputData.getString(KeyTaskId).orEmpty()),
-            notice = PendingNotice,
+    override suspend fun getForegroundInfo(): ForegroundInfo {
+        val id = TaskId(inputData.getString(KeyTaskId).orEmpty())
+        return foregroundInfo(
+            id = id,
+            notice = applicationContext.pendingNotice(id),
         )
+    }
 
     private fun foregroundInfo(
         id: TaskId,

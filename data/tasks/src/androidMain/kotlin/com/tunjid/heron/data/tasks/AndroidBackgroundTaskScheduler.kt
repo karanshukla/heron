@@ -19,7 +19,7 @@ package com.tunjid.heron.data.tasks
 import android.content.Context
 import android.os.Build
 import com.tunjid.heron.data.files.FileManager
-import com.tunjid.heron.data.tasks.TransferNotifications.ensureChannel
+import com.tunjid.heron.data.tasks.TransferNotifications.ensureChannels
 import com.tunjid.heron.data.tasks.uidt.UidtTransferDelegate
 import com.tunjid.heron.data.tasks.workmanager.WorkManagerTransferDelegate
 import io.ktor.client.HttpClient
@@ -39,7 +39,7 @@ class AndroidBackgroundTaskScheduler(
 ) : BackgroundTaskScheduler(taskStore, httpClient, fileManager) {
 
     init {
-        context.ensureChannel()
+        context.ensureChannels()
     }
 
     private val delegate: TransferDelegate =

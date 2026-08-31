@@ -55,7 +55,7 @@ internal class UidtTransferDelegate(
                         task.sizeInBytes,
                         0L,
                     )
-                    //no byte data available the delegate
+                    // no byte data available the delegate
                     is Task.Upload -> setEstimatedNetworkBytes(
                         0L,
                         JobInfo.NETWORK_BYTES_UNKNOWN.toLong(),

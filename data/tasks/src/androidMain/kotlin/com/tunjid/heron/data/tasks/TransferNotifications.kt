@@ -26,25 +26,27 @@ import androidx.core.app.NotificationCompat
 /** The progress notification shown while a transfer runs (a FGS notification, or a UIDT job notification). */
 internal object TransferNotifications {
 
-    const val ChannelId = "heron.transfers"
-
-    fun Context.ensureChannel() {
-        // Created unconditionally; the channel predates uploads and this renames it in place.
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(
-                ChannelId,
-                "Transfers",
-                NotificationManager.IMPORTANCE_LOW,
-            ),
-        )
+    fun Context.ensureChannels() {
+        val manager = getSystemService(NotificationManager::class.java)
+        Task.Kind.entries.forEach { kind ->
+            if (manager.getNotificationChannel(kind.channelId) == null) {
+                manager.createNotificationChannel(
+                    NotificationChannel(
+                        kind.channelId,
+                        kind.channelName,
+                        NotificationManager.IMPORTANCE_LOW,
+                    ),
+                )
+            }
+        }
     }
 
     fun Context.progressNotification(
         notice: TransferNotice,
     ): Notification {
-        this.ensureChannel()
+        this.ensureChannels()
         val progress = notice.progress
-        return NotificationCompat.Builder(this, ChannelId)
+        return NotificationCompat.Builder(this, notice.channelId)
             .setContentTitle(notice.title)
             .setSmallIcon(notice.smallIcon)
             .setOngoing(true)
@@ -89,3 +91,15 @@ internal object TransferNotifications {
         )
     }
 }
+
+internal val Task.Kind.channelId: String
+    get() = when (this) {
+        Task.Kind.Transfer -> "heron.transfers"
+        Task.Kind.Upload -> "heron.uploads"
+    }
+
+private val Task.Kind.channelName: String
+    get() = when (this) {
+        Task.Kind.Transfer -> "Downloads"
+        Task.Kind.Upload -> "Uploads"
+    }

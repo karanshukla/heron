@@ -25,6 +25,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 /** What a running transfer wants shown in its notification. */
 internal data class TransferNotice(
+    val channelId: String,
     val title: String,
     val smallIcon: Int,
     val progress: Progress?,
@@ -82,23 +83,34 @@ internal fun Task.notice(
     progress: Progress?,
 ): TransferNotice = when (this) {
     is Task.Download -> TransferNotice(
+        channelId = kind.channelId,
         title = destination.path.name,
         smallIcon = android.R.drawable.stat_sys_download,
         progress = progress,
     )
     is Task.Upload -> TransferNotice(
+        channelId = kind.channelId,
         title = UploadTitle,
         smallIcon = android.R.drawable.stat_sys_upload,
         progress = progress,
     )
 }
 
-/** Shown before a task has been read back from the store, so it cannot name itself yet. */
-internal val PendingNotice = TransferNotice(
-    title = "Transferring",
-    smallIcon = android.R.drawable.stat_sys_upload,
-    progress = null,
-)
+/** The notice for [id] before it reports one of its own; a task already gone shows the default. */
+internal suspend fun Context.pendingNotice(
+    id: TaskId,
+): TransferNotice = backgroundTaskScheduler.taskStore.pending
+    .first()
+    .firstOrNull { it.id == id }
+    ?.notice(progress = null)
+    ?: TransferNotice(
+        channelId = Task.Kind.Transfer.channelId,
+        title = DownloadTitle,
+        smallIcon = android.R.drawable.stat_sys_download,
+        progress = null,
+    )
+
+private const val DownloadTitle = "Download"
 
 private const val UploadTitle = "Uploading media"
 
